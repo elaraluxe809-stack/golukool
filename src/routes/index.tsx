@@ -57,10 +57,10 @@ export const Route = createFileRoute("/")({
         content:
           "Drop PDF tax invoices and export a ready-to-file GSTR-1 workbook. Auto rate-splits, GSTIN validation, B2B/B2C classification.",
       },
-      { property: "og:title", content: "GSTR-1 Auto Prep" },
+      { property: "og:title", content: "GSTR-1 Auto Prep — Extract invoices to GSTR-1 Excel" },
       {
         property: "og:description",
-        content: "PDF tax invoices → GSTR-1 Excel. All processed in your browser.",
+        content: "Drop PDF tax invoices and export a ready-to-file GSTR-1 workbook. Auto rate-splits, GSTIN validation, B2B/B2C classification.",
       },
     ],
   }),
