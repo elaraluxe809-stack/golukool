@@ -67,7 +67,6 @@ const InvoiceSchema = z.object({
   invoice_no: z.string().nullable(),
   invoice_date: z.string().nullable(),
   supplier_gstin: z.string().nullable().default(null),
-  invoice_date: z.string().nullable(),
   customer_name: z.string().nullable(),
   customer_gstin: z.string().nullable(),
   place_of_supply: z.string().nullable(),
