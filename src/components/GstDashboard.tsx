@@ -1,16 +1,15 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import type { InvoiceRecord } from "@/lib/gstr1/parser";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Download, Plus, Save, Trash2 } from "lucide-react";
+import type { HsnItem, InvoiceRecord } from "@/lib/gstr1/parser";
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const fmt = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const num = (v: string) => Number(v.replace(/,/g, "")) || 0;
 
 function parseDate(s: string | null): { y: number; m: number } | null {
   if (!s) return null;
@@ -20,215 +19,55 @@ function parseDate(s: string | null): { y: number; m: number } | null {
   m = t.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
   if (m) return { y: Number(m[1]), m: Number(m[2]) };
   const d = new Date(t);
-  if (!isNaN(d.getTime())) return { y: d.getFullYear(), m: d.getMonth() + 1 };
-  return null;
+  return isNaN(d.getTime()) ? null : { y: d.getFullYear(), m: d.getMonth() + 1 };
 }
 const mKey = (y: number, m: number) => `${MONTHS[m - 1]} ${y}`;
-
-function dedupe(records: InvoiceRecord[]): InvoiceRecord[] {
-  const seen = new Set<string>();
-  const out: InvoiceRecord[] = [];
-  for (const r of records) {
-    const key = (r.invoiceNumber?.trim().toUpperCase() ?? "") + "|" + (r.invoiceDate ?? "");
-    const k = key.length > 1 ? key : `FILE:${r.fileName}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(r);
-  }
-  return out;
-}
-
-const fmt = (n: number) =>
-  n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function csvCell(v: string | number | null): string { const s = String(v ?? ""); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
+function downloadCsv(filename: string, rows: Array<Array<string | number | null>>) { const csv = rows.map(r => r.map(csvCell).join(",")).join("\r\n") + "\r\n"; const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); const a = document.createElement("a"); a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
+const emptyHsn = (): HsnItem => ({ hsn:"", description:"", uqc:"OTH", quantity:0, rate:0, taxableValue:0, igst:0, cgst:0, sgst:0, cess:0 });
+function cloneRecords(records: InvoiceRecord[]): InvoiceRecord[] { return records.map(r => ({ ...r, rateSplits:r.rateSplits.map(s=>({...s})), hsnItems:(r.hsnItems??[]).map(h=>({...h})), issues:[...r.issues] })); }
 
 export function GstDashboard({ records }: { records: InvoiceRecord[] }) {
+  const [edited, setEdited] = useState<InvoiceRecord[]>(() => cloneRecords(records));
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { setEdited(cloneRecords(records)); setSaved(false); }, [records]);
+
   const data = useMemo(() => {
-    const invoices = dedupe(records);
-    const grand = { taxable: 0, igst: 0, cgst: 0, sgst: 0 };
-    for (const r of invoices)
-      for (const s of r.rateSplits) {
-        grand.taxable += s.taxableValue;
-        grand.igst += s.igst;
-        grand.cgst += s.cgst;
-        grand.sgst += s.sgst;
-      }
-    const total = grand.taxable + grand.igst + grand.cgst + grand.sgst;
-
-    // monthly
-    const mMap = new Map<string, { y: number; m: number; count: number; taxable: number; igst: number; cgst: number; sgst: number }>();
-    for (const r of invoices) {
-      const d = parseDate(r.invoiceDate);
-      const key = d ? mKey(d.y, d.m) : "Unknown";
-      let b = mMap.get(key);
-      if (!b) { b = { y: d?.y ?? 0, m: d?.m ?? 0, count: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0 }; mMap.set(key, b); }
-      b.count++;
-      for (const s of r.rateSplits) {
-        b.taxable += s.taxableValue; b.igst += s.igst; b.cgst += s.cgst; b.sgst += s.sgst;
-      }
+    const grand={taxable:0,igst:0,cgst:0,sgst:0};
+    const mMap=new Map<string,{y:number;m:number;count:number;taxable:number;igst:number;cgst:number;sgst:number}>();
+    const hMap=new Map<string,{qty:number;taxable:number;igst:number;cgst:number;sgst:number;cess:number}>();
+    for (const r of edited) {
+      for (const s of r.rateSplits) { grand.taxable+=s.taxableValue; grand.igst+=s.igst; grand.cgst+=s.cgst; grand.sgst+=s.sgst; }
+      const d=parseDate(r.invoiceDate), key=d?mKey(d.y,d.m):"Unknown";
+      const b=mMap.get(key)??{y:d?.y??0,m:d?.m??0,count:0,taxable:0,igst:0,cgst:0,sgst:0}; b.count++;
+      for(const s of r.rateSplits){b.taxable+=s.taxableValue;b.igst+=s.igst;b.cgst+=s.cgst;b.sgst+=s.sgst;} mMap.set(key,b);
+      for(const h of r.hsnItems??[]){const code=(h.hsn||"").trim()||"UNSPECIFIED";const a=hMap.get(code)??{qty:0,taxable:0,igst:0,cgst:0,sgst:0,cess:0};a.qty+=h.quantity;a.taxable+=h.taxableValue;a.igst+=h.igst;a.cgst+=h.cgst;a.sgst+=h.sgst;a.cess+=h.cess;hMap.set(code,a);}
     }
-    const monthly = [...mMap.entries()]
-      .map(([k, v]) => ({ key: k, ...v }))
-      .sort((a, b) => a.y - b.y || a.m - b.m);
+    const monthly=[...mMap.entries()].map(([key,v])=>({key,...v})).sort((a,b)=>a.y-b.y||a.m-b.m);
+    const hsn=[...hMap.entries()].map(([code,v])=>({code,...v})).sort((a,b)=>b.taxable-a.taxable);
+    const hsnGrand=hsn.reduce((a,h)=>({qty:a.qty+h.qty,taxable:a.taxable+h.taxable,igst:a.igst+h.igst,cgst:a.cgst+h.cgst,sgst:a.sgst+h.sgst,cess:a.cess+h.cess}),{qty:0,taxable:0,igst:0,cgst:0,sgst:0,cess:0});
+    const invoiceTotal=edited.reduce((sum,r)=>sum+(r.invoiceValue??r.rateSplits.reduce((x,s)=>x+s.taxableValue+s.igst+s.cgst+s.sgst,0)),0);
+    const hsnTotal=hsnGrand.taxable+hsnGrand.igst+hsnGrand.cgst+hsnGrand.sgst+hsnGrand.cess;
+    return {grand,monthly,hsn,hsnGrand,invoiceTotal,hsnTotal};
+  },[edited]);
 
-    // HSN summary
-    const hMap = new Map<string, { count: number; qty: number; taxable: number; igst: number; cgst: number; sgst: number; cess: number }>();
-    for (const r of invoices) {
-      const seenC = new Set<string>();
-      for (const h of r.hsnItems) {
-        const code = (h.hsn || "").trim() || "UNSPECIFIED";
-        let a = hMap.get(code);
-        if (!a) { a = { count: 0, qty: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 }; hMap.set(code, a); }
-        if (!seenC.has(code)) { a.count++; seenC.add(code); }
-        a.qty += h.quantity;
-        a.taxable += h.taxableValue;
-        a.igst += h.igst;
-        a.cgst += h.cgst;
-        a.sgst += h.sgst;
-        a.cess += h.cess;
-      }
-    }
-    const hsn = [...hMap.entries()]
-      .map(([code, v]) => ({ code, ...v }))
-      .sort((a, b) => b.taxable - a.taxable);
+  const updateInvoice=(i:number,field:keyof InvoiceRecord,value:string|number|null)=>{setSaved(false);setEdited(p=>p.map((r,j)=>j===i?{...r,[field]:value}:r));};
+  const updateHsn=(ri:number,hi:number,field:keyof HsnItem,value:string|number)=>{setSaved(false);setEdited(p=>p.map((r,i)=>i!==ri?r:{...r,hsnItems:r.hsnItems.map((h,j)=>j===hi?{...h,[field]:value}:h)}));};
+  const addHsn=(ri:number)=>{setSaved(false);setEdited(p=>p.map((r,i)=>i===ri?{...r,hsnItems:[...r.hsnItems,emptyHsn()]}:r));};
+  const deleteHsn=(ri:number,hi:number)=>{setSaved(false);setEdited(p=>p.map((r,i)=>i===ri?{...r,hsnItems:r.hsnItems.filter((_,j)=>j!==hi)}:r));};
 
-    const hsnGrand = hsn.reduce(
-      (a, h) => ({
-        count: a.count + h.count,
-        qty: a.qty + h.qty,
-        taxable: a.taxable + h.taxable,
-        igst: a.igst + h.igst,
-        cgst: a.cgst + h.cgst,
-        sgst: a.sgst + h.sgst,
-        cess: a.cess + h.cess,
-      }),
-      { count: 0, qty: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 },
-    );
-    const hsnTotal = hsnGrand.taxable + hsnGrand.igst + hsnGrand.cgst + hsnGrand.sgst + hsnGrand.cess;
+  const exportInvoices=()=>downloadCsv("invoice_extraction.csv",[["File","Invoice No","Invoice Date","Supplier GSTIN","Supplier State","Customer Name","Customer GSTIN","Place of Supply","Supply Type","Category","Invoice Value","Taxable","IGST","CGST","SGST","HSN Total","Difference","Status"],...edited.map(r=>{const taxable=r.rateSplits.reduce((a,s)=>a+s.taxableValue,0),igst=r.rateSplits.reduce((a,s)=>a+s.igst,0),cgst=r.rateSplits.reduce((a,s)=>a+s.cgst,0),sgst=r.rateSplits.reduce((a,s)=>a+s.sgst,0),ht=(r.hsnItems??[]).reduce((a,h)=>a+h.taxableValue+h.igst+h.cgst+h.sgst+h.cess,0),diff=(r.invoiceValue??taxable+igst+cgst+sgst)-ht;return [r.fileName,r.invoiceNumber,r.invoiceDate,r.supplierGstin,r.supplierState,r.customerName,r.customerGstin,r.placeOfSupply,r.supplyType,r.category,r.invoiceValue,taxable,igst,cgst,sgst,ht,diff,Math.abs(diff)<=1?"MATCH":"CHECK"];})]);
+  const exportHsn=()=>downloadCsv("hsn_extraction.csv",[["File","Invoice No","HSN","Description","UQC","Quantity","Rate","Taxable Value","IGST","CGST","SGST","Cess","Total Value"],...edited.flatMap(r=>(r.hsnItems??[]).map(h=>[r.fileName,r.invoiceNumber,h.hsn,h.description,h.uqc,h.quantity,h.rate,h.taxableValue,h.igst,h.cgst,h.sgst,h.cess,h.taxableValue+h.igst+h.cgst+h.sgst+h.cess]))]);
+  const exportRecon=()=>downloadCsv("invoice_hsn_reconciliation.csv",[["Invoice No","File","Invoice Value","HSN Taxable","HSN IGST","HSN CGST","HSN SGST","HSN Cess","HSN Total","Difference","Status"],...edited.map(r=>{const h=(r.hsnItems??[]).reduce((a,x)=>({taxable:a.taxable+x.taxableValue,igst:a.igst+x.igst,cgst:a.cgst+x.cgst,sgst:a.sgst+x.sgst,cess:a.cess+x.cess}),{taxable:0,igst:0,cgst:0,sgst:0,cess:0}),total=h.taxable+h.igst+h.cgst+h.sgst+h.cess,diff=(r.invoiceValue??0)-total;return [r.invoiceNumber,r.fileName,r.invoiceValue,h.taxable,h.igst,h.cgst,h.sgst,h.cess,total,diff,Math.abs(diff)<=1?"MATCH":"CHECK"];})]);
+  const kpis=[["Total Invoices",String(edited.length)],["Total Taxable",fmt(data.grand.taxable)],["Total IGST",fmt(data.grand.igst)],["Total CGST",fmt(data.grand.cgst)],["Total SGST",fmt(data.grand.sgst)],["Total Invoice Value",fmt(data.invoiceTotal)],["Total HSN Value",fmt(data.hsnTotal)]];
 
-    return { invoices: invoices.length, grand, total, monthly, hsn, hsnGrand, hsnTotal };
-  }, [records]);
-
-  const kpis = [
-    { label: "Total Invoices", value: data.invoices.toString() },
-    { label: "Total Taxable", value: fmt(data.grand.taxable) },
-    { label: "Total IGST", value: fmt(data.grand.igst) },
-    { label: "Total CGST", value: fmt(data.grand.cgst) },
-    { label: "Total SGST", value: fmt(data.grand.sgst) },
-    { label: "Total Invoice Value", value: fmt(data.total) },
-    { label: "Total HSN Value", value: fmt(data.hsnTotal) },
-  ];
-
-  return (
-    <section className="mt-10 space-y-6">
-      <h2 className="text-2xl font-bold tracking-tight">GST Summary Dashboard</h2>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-7">
-        {kpis.map((k) => (
-          <Card key={k.label} className="overflow-hidden">
-            <div className="bg-primary px-3 py-2 text-xs font-medium text-primary-foreground">
-              {k.label}
-            </div>
-            <div className="px-3 py-3 text-lg font-semibold">{k.value}</div>
-          </Card>
-        ))}
-      </div>
-
-      {/* Monthly */}
-      <Card className="overflow-hidden">
-        <div className="bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
-          Monthly Invoice Summary
-        </div>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Month</TableHead>
-              <TableHead className="text-right">Invoices</TableHead>
-              <TableHead className="text-right">Taxable</TableHead>
-              <TableHead className="text-right">IGST</TableHead>
-              <TableHead className="text-right">CGST</TableHead>
-              <TableHead className="text-right">SGST</TableHead>
-              <TableHead className="text-right">Total Value</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.monthly.map((m) => (
-              <TableRow key={m.key}>
-                <TableCell>{m.key}</TableCell>
-                <TableCell className="text-right">{m.count}</TableCell>
-                <TableCell className="text-right">{fmt(m.taxable)}</TableCell>
-                <TableCell className="text-right">{fmt(m.igst)}</TableCell>
-                <TableCell className="text-right">{fmt(m.cgst)}</TableCell>
-                <TableCell className="text-right">{fmt(m.sgst)}</TableCell>
-                <TableCell className="text-right">
-                  {fmt(m.taxable + m.igst + m.cgst + m.sgst)}
-                </TableCell>
-              </TableRow>
-            ))}
-            <TableRow className="bg-green-50 font-semibold dark:bg-green-950/30">
-              <TableCell>Grand Total</TableCell>
-              <TableCell className="text-right">
-                {data.monthly.reduce((a, b) => a + b.count, 0)}
-              </TableCell>
-              <TableCell className="text-right">{fmt(data.grand.taxable)}</TableCell>
-              <TableCell className="text-right">{fmt(data.grand.igst)}</TableCell>
-              <TableCell className="text-right">{fmt(data.grand.cgst)}</TableCell>
-              <TableCell className="text-right">{fmt(data.grand.sgst)}</TableCell>
-              <TableCell className="text-right">{fmt(data.total)}</TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
-      </Card>
-
-      {/* HSN */}
-      <Card className="overflow-hidden">
-        <div className="bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
-          HSN Summary
-        </div>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>HSN</TableHead>
-              <TableHead className="text-right">Invoices</TableHead>
-              <TableHead className="text-right">Qty</TableHead>
-              <TableHead className="text-right">Taxable</TableHead>
-              <TableHead className="text-right">IGST</TableHead>
-              <TableHead className="text-right">CGST</TableHead>
-              <TableHead className="text-right">SGST</TableHead>
-              <TableHead className="text-right">CESS</TableHead>
-              <TableHead className="text-right">Total Value</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.hsn.map((h) => (
-              <TableRow key={h.code}>
-                <TableCell className="font-mono text-xs">{h.code}</TableCell>
-                <TableCell className="text-right">{h.count}</TableCell>
-                <TableCell className="text-right">{h.qty}</TableCell>
-                <TableCell className="text-right">{fmt(h.taxable)}</TableCell>
-                <TableCell className="text-right">{fmt(h.igst)}</TableCell>
-                <TableCell className="text-right">{fmt(h.cgst)}</TableCell>
-                <TableCell className="text-right">{fmt(h.sgst)}</TableCell>
-                <TableCell className="text-right">{fmt(h.cess)}</TableCell>
-                <TableCell className="text-right">
-                  {fmt(h.taxable + h.igst + h.cgst + h.sgst + h.cess)}
-                </TableCell>
-              </TableRow>
-            ))}
-            <TableRow className="bg-green-50 font-semibold dark:bg-green-950/30">
-              <TableCell>HSN Grand Total</TableCell>
-              <TableCell className="text-right">{data.hsnGrand.count}</TableCell>
-              <TableCell className="text-right">{fmt(data.hsnGrand.qty)}</TableCell>
-              <TableCell className="text-right">{fmt(data.hsnGrand.taxable)}</TableCell>
-              <TableCell className="text-right">{fmt(data.hsnGrand.igst)}</TableCell>
-              <TableCell className="text-right">{fmt(data.hsnGrand.cgst)}</TableCell>
-              <TableCell className="text-right">{fmt(data.hsnGrand.sgst)}</TableCell>
-              <TableCell className="text-right">{fmt(data.hsnGrand.cess)}</TableCell>
-              <TableCell className="text-right">{fmt(data.hsnTotal)}</TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
-      </Card>
-    </section>
-  );
+  return <section className="mt-10 space-y-6">
+    <Card className="overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-3 bg-primary px-4 py-3 text-primary-foreground"><div><div className="text-sm font-semibold">Editable Extraction</div><div className="text-xs opacity-80">Edit invoice and HSN values after extraction, then download corrected data.</div></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={()=>setSaved(true)}><Save className="h-4 w-4"/>Save edits</Button><Button size="sm" variant="secondary" onClick={exportInvoices}><Download className="h-4 w-4"/>Invoice Extraction</Button><Button size="sm" variant="secondary" onClick={exportHsn}><Download className="h-4 w-4"/>HSN Extraction</Button><Button size="sm" variant="secondary" onClick={exportRecon}><Download className="h-4 w-4"/>Reconciliation</Button></div></div>{saved&&<div className="border-b px-4 py-2 text-xs text-emerald-700">Edits saved for this session. Downloads use the edited values.</div>}</Card>
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-7">{kpis.map(([label,value])=><Card key={label} className="overflow-hidden"><div className="bg-primary px-3 py-2 text-xs font-medium text-primary-foreground">{label}</div><div className="px-3 py-3 text-lg font-semibold">{value}</div></Card>)}</div>
+    <Card className="overflow-hidden"><div className="border-b px-4 py-3"><div className="font-semibold">Invoice Extraction — Editable</div><div className="text-xs text-muted-foreground">Correct invoice fields before downloading.</div></div><div className="overflow-x-auto"><Table><TableHeader><TableRow>{["Invoice No","Date","Supplier GSTIN","Customer","Customer GSTIN","POS","Invoice Value","Category","Supply"].map(x=><TableHead key={x}>{x}</TableHead>)}</TableRow></TableHeader><TableBody>{edited.map((r,i)=><TableRow key={i}><TableCell><Input value={r.invoiceNumber??""} onChange={e=>updateInvoice(i,"invoiceNumber",e.target.value||null)} className="min-w-32"/></TableCell><TableCell><Input value={r.invoiceDate??""} onChange={e=>updateInvoice(i,"invoiceDate",e.target.value||null)} className="min-w-28"/></TableCell><TableCell><Input value={r.supplierGstin??""} onChange={e=>updateInvoice(i,"supplierGstin",e.target.value.toUpperCase()||null)} className="min-w-40 font-mono text-xs"/></TableCell><TableCell><Input value={r.customerName??""} onChange={e=>updateInvoice(i,"customerName",e.target.value||null)} className="min-w-40"/></TableCell><TableCell><Input value={r.customerGstin??""} onChange={e=>updateInvoice(i,"customerGstin",e.target.value.toUpperCase()||null)} className="min-w-40 font-mono text-xs"/></TableCell><TableCell><Input value={r.placeOfSupply??""} onChange={e=>updateInvoice(i,"placeOfSupply",e.target.value||null)} className="min-w-28"/></TableCell><TableCell><Input type="number" step="0.01" value={r.invoiceValue??""} onChange={e=>updateInvoice(i,"invoiceValue",e.target.value===""?null:num(e.target.value))} className="min-w-28"/></TableCell><TableCell><Badge variant={r.category==="B2B"?"default":"secondary"}>{r.category}</Badge></TableCell><TableCell><Badge variant="outline">{r.supplyType}</Badge></TableCell></TableRow>)}</TableBody></Table></div></Card>
+    <Card className="overflow-hidden"><div className="border-b px-4 py-3"><div className="font-semibold">HSN Extraction — Editable</div><div className="text-xs text-muted-foreground">Add, edit or delete HSN rows. Totals recalculate immediately.</div></div><div className="space-y-6 p-4">{edited.map((r,ri)=><div key={ri} className="overflow-x-auto rounded-lg border"><div className="flex min-w-[1000px] items-center justify-between border-b bg-muted/40 px-3 py-2"><div className="text-sm font-semibold">{r.invoiceNumber??r.fileName}</div><Button size="sm" variant="outline" onClick={()=>addHsn(ri)}><Plus className="h-4 w-4"/>Add HSN</Button></div><Table><TableHeader><TableRow>{["HSN","Description","UQC","Qty","Rate","Taxable","IGST","CGST","SGST","Cess","Total",""] .map(x=><TableHead key={x}>{x}</TableHead>)}</TableRow></TableHeader><TableBody>{(r.hsnItems??[]).map((h,hi)=>{const total=h.taxableValue+h.igst+h.cgst+h.sgst+h.cess;const text=(f:keyof HsnItem)=>String(h[f]??"");return <TableRow key={hi}>{(["hsn","description","uqc"] as const).map(f=><TableCell key={f}><Input value={text(f)} onChange={e=>updateHsn(ri,hi,f,e.target.value)} className="min-w-24"/></TableCell>)}{(["quantity","rate","taxableValue","igst","cgst","sgst","cess"] as const).map(f=><TableCell key={f}><Input type="number" step="0.01" value={Number(h[f])} onChange={e=>updateHsn(ri,hi,f,num(e.target.value))} className="min-w-20"/></TableCell>)}<TableCell className="whitespace-nowrap text-right font-medium">{fmt(total)}</TableCell><TableCell><Button size="icon" variant="ghost" onClick={()=>deleteHsn(ri,hi)} aria-label="Delete HSN row"><Trash2 className="h-4 w-4 text-destructive"/></Button></TableCell></TableRow>})}</TableBody></Table><div className="flex min-w-[1000px] justify-end gap-5 border-t bg-muted/20 px-3 py-2 text-xs font-semibold"><span>Taxable {fmt((r.hsnItems??[]).reduce((a,h)=>a+h.taxableValue,0))}</span><span>IGST {fmt((r.hsnItems??[]).reduce((a,h)=>a+h.igst,0))}</span><span>CGST {fmt((r.hsnItems??[]).reduce((a,h)=>a+h.cgst,0))}</span><span>SGST {fmt((r.hsnItems??[]).reduce((a,h)=>a+h.sgst,0))}</span><span>Total {fmt((r.hsnItems??[]).reduce((a,h)=>a+h.taxableValue+h.igst+h.cgst+h.sgst+h.cess,0))}</span></div></div>)}</div></Card>
+    <Card className="overflow-hidden"><div className="bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Invoice ↔ HSN Reconciliation</div><Table><TableHeader><TableRow><TableHead>Invoice</TableHead><TableHead className="text-right">Invoice Value</TableHead><TableHead className="text-right">HSN Total</TableHead><TableHead className="text-right">Difference</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{edited.map((r,i)=>{const ht=(r.hsnItems??[]).reduce((a,h)=>a+h.taxableValue+h.igst+h.cgst+h.sgst+h.cess,0);const diff=(r.invoiceValue??0)-ht;return <TableRow key={i}><TableCell>{r.invoiceNumber??r.fileName}</TableCell><TableCell className="text-right">{r.invoiceValue==null?"—":fmt(r.invoiceValue)}</TableCell><TableCell className="text-right">{fmt(ht)}</TableCell><TableCell className="text-right">{fmt(diff)}</TableCell><TableCell><Badge variant={Math.abs(diff)<=1?"default":"destructive"}>{Math.abs(diff)<=1?"MATCH":"CHECK"}</Badge></TableCell></TableRow>})}</TableBody></Table></Card>
+    <Card className="overflow-hidden"><div className="bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Monthly Invoice Summary</div><Table><TableHeader><TableRow><TableHead>Month</TableHead><TableHead className="text-right">Invoices</TableHead><TableHead className="text-right">Taxable</TableHead><TableHead className="text-right">IGST</TableHead><TableHead className="text-right">CGST</TableHead><TableHead className="text-right">SGST</TableHead><TableHead className="text-right">Total Value</TableHead></TableRow></TableHeader><TableBody>{data.monthly.map(m=><TableRow key={m.key}><TableCell>{m.key}</TableCell><TableCell className="text-right">{m.count}</TableCell><TableCell className="text-right">{fmt(m.taxable)}</TableCell><TableCell className="text-right">{fmt(m.igst)}</TableCell><TableCell className="text-right">{fmt(m.cgst)}</TableCell><TableCell className="text-right">{fmt(m.sgst)}</TableCell><TableCell className="text-right">{fmt(m.taxable+m.igst+m.cgst+m.sgst)}</TableCell></TableRow>)}<TableRow className="bg-green-50 font-semibold dark:bg-green-950/30"><TableCell>Grand Total</TableCell><TableCell className="text-right">{edited.length}</TableCell><TableCell className="text-right">{fmt(data.grand.taxable)}</TableCell><TableCell className="text-right">{fmt(data.grand.igst)}</TableCell><TableCell className="text-right">{fmt(data.grand.cgst)}</TableCell><TableCell className="text-right">{fmt(data.grand.sgst)}</TableCell><TableCell className="text-right">{fmt(data.grand.taxable+data.grand.igst+data.grand.cgst+data.grand.sgst)}</TableCell></TableRow></TableBody></Table></Card>
+    <Card className="overflow-hidden"><div className="bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">HSN Summary</div><Table><TableHeader><TableRow><TableHead>HSN</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Taxable</TableHead><TableHead className="text-right">IGST</TableHead><TableHead className="text-right">CGST</TableHead><TableHead className="text-right">SGST</TableHead><TableHead className="text-right">CESS</TableHead><TableHead className="text-right">Total Value</TableHead></TableRow></TableHeader><TableBody>{data.hsn.map(h=><TableRow key={h.code}><TableCell className="font-mono text-xs">{h.code}</TableCell><TableCell className="text-right">{fmt(h.qty)}</TableCell><TableCell className="text-right">{fmt(h.taxable)}</TableCell><TableCell className="text-right">{fmt(h.igst)}</TableCell><TableCell className="text-right">{fmt(h.cgst)}</TableCell><TableCell className="text-right">{fmt(h.sgst)}</TableCell><TableCell className="text-right">{fmt(h.cess)}</TableCell><TableCell className="text-right">{fmt(h.taxable+h.igst+h.cgst+h.sgst+h.cess)}</TableCell></TableRow>)}<TableRow className="bg-green-50 font-semibold dark:bg-green-950/30"><TableCell>HSN Grand Total</TableCell><TableCell className="text-right">{fmt(data.hsnGrand.qty)}</TableCell><TableCell className="text-right">{fmt(data.hsnGrand.taxable)}</TableCell><TableCell className="text-right">{fmt(data.hsnGrand.igst)}</TableCell><TableCell className="text-right">{fmt(data.hsnGrand.cgst)}</TableCell><TableCell className="text-right">{fmt(data.hsnGrand.sgst)}</TableCell><TableCell className="text-right">{fmt(data.hsnGrand.cess)}</TableCell><TableCell className="text-right">{fmt(data.hsnTotal)}</TableCell></TableRow></TableBody></Table></Card>
+  </section>;
 }
