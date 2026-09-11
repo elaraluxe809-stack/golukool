@@ -3,16 +3,18 @@ import { z } from "zod";
 
 const SYSTEM_PROMPT = `You are an Indian GST Invoice Extraction Engine.
 
-Your task is to extract invoice information with 100% accuracy.
+Your task is to extract invoice information accurately. Never invent or guess values.
 
 Rules:
-1. Never guess any value.
+1. Never guess any value. If a field is not readable or not present, return null.
 2. Read every field exactly as printed.
 3. Preserve Invoice Number / GSTIN / Customer Name / Invoice Date exactly.
-4. Detect Place of Supply.
-5. Detect whether IGST or CGST+SGST.
-6. Group invoice according to GST Rate for "rows".
-7. Also extract every HSN/SAC line item into "hsn": one entry per line item.
+4. Extract the SELLER/SUPPLIER GSTIN separately from the BUYER/CUSTOMER GSTIN. Never copy the customer GSTIN into supplier_gstin.
+5. supplier_gstin must be the GSTIN belonging to the invoice issuer/seller/supplier. customer_gstin must be the GSTIN belonging to the recipient/buyer/customer.
+6. Detect Place of Supply from the invoice. Do not infer it from customer GSTIN when the invoice explicitly states a different POS.
+7. Detect whether the invoice actually shows IGST or CGST+SGST; do not change or rebalance tax amounts.
+8. Group invoice according to GST Rate for "rows".
+9. Also extract every HSN/SAC line item into "hsn": one entry per line item.
    - hsn: the HSN or SAC code as printed (digits only if possible).
    - description: item description text.
    - uqc: unit of measure printed on the line (e.g. NOS, KGS, PCS, MTR, BAG). If absent use "OTH".
@@ -20,13 +22,14 @@ Rules:
    - rate: GST rate % of that line (0/3/5/12/18/28).
    - taxable_value: taxable amount of that line.
    - igst / cgst / sgst / cess: tax amounts of that line (0 if not applicable).
-8. Verify Taxable + GST = Invoice Total.
-9. Return JSON only. Missing fields = null. No explanations.
+10. Verify Taxable + GST = Invoice Total.
+11. Return JSON only. Missing fields = null. No explanations.
 
 Return this exact JSON shape:
 {
  "invoice_no": "",
  "invoice_date": "",
+ "supplier_gstin": "",
  "customer_name": "",
  "customer_gstin": "",
  "place_of_supply": "",
@@ -63,6 +66,8 @@ const HsnSchema = z.object({
 const InvoiceSchema = z.object({
   invoice_no: z.string().nullable(),
   invoice_date: z.string().nullable(),
+  supplier_gstin: z.string().nullable().default(null),
+  invoice_date: z.string().nullable(),
   customer_name: z.string().nullable(),
   customer_gstin: z.string().nullable(),
   place_of_supply: z.string().nullable(),
@@ -96,8 +101,6 @@ function repairTruncatedJson(text: string): string {
   let s = text.trim();
   const first = s.indexOf("{");
   if (first > 0) s = s.slice(first);
-  // Strip trailing partial token (unterminated string, dangling comma/colon).
-  // Find last position outside a string that safely terminates a value.
   const stack: string[] = [];
   let inStr = false;
   let esc = false;
@@ -114,21 +117,18 @@ function repairTruncatedJson(text: string): string {
     if (c === "{" || c === "[") { stack.push(c); lastSafe = i + 1; continue; }
     if (c === "}" || c === "]") { stack.pop(); lastSafe = i + 1; continue; }
     if (c === "," || c === " " || c === "\n" || c === "\r" || c === "\t") {
-      if (c === ",") lastSafe = i; // trim before dangling comma
+      if (c === ",") lastSafe = i;
       continue;
     }
-    // digits/letters within a literal — advance safe pointer only when we know it ends
     lastSafe = i + 1;
   }
   let out = s.slice(0, lastSafe);
-  // If we were inside a string, drop the partial one and any preceding "key":
   if (inStr) {
     const q = out.lastIndexOf('"');
     if (q !== -1) out = out.slice(0, q);
     out = out.replace(/,?\s*"[^"]*"\s*:\s*$/, "").replace(/,\s*$/, "");
   }
   out = out.replace(/[,:]\s*$/, "");
-  // Recompute open brackets and append closers.
   const stk: string[] = [];
   let inS = false, es = false;
   for (let i = 0; i < out.length; i++) {
@@ -149,7 +149,6 @@ function repairTruncatedJson(text: string): string {
   }
   return out;
 }
-
 
 export const extractInvoiceWithAI = createServerFn({ method: "POST" })
   .inputValidator((v: unknown) => Input.parse(v))
@@ -257,12 +256,10 @@ export const extractInvoiceWithAI = createServerFn({ method: "POST" })
       } satisfies ExtractInvoiceResult;
     }
 
-
     let parsed: unknown;
     try {
       parsed = JSON.parse(stripJson(raw));
     } catch {
-      // Response was likely truncated mid-JSON — attempt to repair and reparse.
       try {
         parsed = JSON.parse(repairTruncatedJson(stripJson(raw)));
       } catch {
