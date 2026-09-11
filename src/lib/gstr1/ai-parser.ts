@@ -46,9 +46,13 @@ export async function parseInvoiceAI(file: File): Promise<InvoiceRecord> {
   });
 
   if (!ai.ok) {
-    if (ai.code === "AI_CREDITS_EXHAUSTED") {
+    if (ai.code === "AI_CREDITS_EXHAUSTED" || ai.code === "AI_NOT_CONFIGURED") {
       const fallback = await parseInvoicePdf(file);
-      fallback.issues.unshift("AI unavailable: extracted with local parser");
+      fallback.issues.unshift(
+        ai.code === "AI_NOT_CONFIGURED"
+          ? "AI unavailable: no AI key configured; extracted with local parser"
+          : "AI unavailable: extracted with local parser",
+      );
       return fallback;
     }
     throw Object.assign(new Error(ai.message), { code: ai.code });
