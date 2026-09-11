@@ -79,7 +79,7 @@ export type ExtractedInvoice = z.infer<typeof InvoiceSchema>;
 
 export type ExtractInvoiceResult =
   | { ok: true; invoice: ExtractedInvoice }
-  | { ok: false; code: "AI_CREDITS_EXHAUSTED" | "AI_RATE_LIMIT" | "AI_GATEWAY_ERROR" | "AI_EMPTY_RESPONSE" | "AI_INVALID_JSON"; message: string };
+  | { ok: false; code: "AI_NOT_CONFIGURED" | "AI_CREDITS_EXHAUSTED" | "AI_RATE_LIMIT" | "AI_GATEWAY_ERROR" | "AI_EMPTY_RESPONSE" | "AI_INVALID_JSON"; message: string };
 
 const Input = z.object({
   fileName: z.string(),
@@ -152,9 +152,15 @@ function repairTruncatedJson(text: string): string {
 export const extractInvoiceWithAI = createServerFn({ method: "POST" })
   .inputValidator((v: unknown) => Input.parse(v))
   .handler(async ({ data }) => {
-    const geminiKey = process.env.GEMINI_API_KEY;
-    const lovableKey = process.env.LOVABLE_API_KEY;
-    if (!geminiKey && !lovableKey) throw new Error("Missing GEMINI_API_KEY or LOVABLE_API_KEY");
+    const geminiKey = process.env["GEMINI_API_KEY"];
+    const lovableKey = process.env["LOVABLE_API_KEY"];
+    if (!geminiKey && !lovableKey) {
+      return {
+        ok: false,
+        code: "AI_NOT_CONFIGURED",
+        message: "No AI provider is configured. The invoice will be processed with the local parser.",
+      } satisfies ExtractInvoiceResult;
+    }
 
     const invoiceText = data.text.trim().slice(0, 45000);
     const userPrompt = `Extract invoice fields from this invoice text (file: ${data.fileName}). Return JSON only.\n\n${invoiceText}`;
