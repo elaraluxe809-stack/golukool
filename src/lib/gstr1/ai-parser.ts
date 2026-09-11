@@ -7,6 +7,21 @@ function normalizeGstin(value: string | null | undefined): string | null {
   return gstin || null;
 }
 
+function findValidGstins(text: string): string[] {
+  const re = /\b(\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d])\b/gi;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const gstin = normalizeGstin(match[1]);
+    if (gstin && !seen.has(gstin) && isValidGstin(gstin)) {
+      seen.add(gstin);
+      out.push(gstin);
+    }
+  }
+  return out;
+}
+
 function stateCodeFromPos(pos: string | null): string | null {
   if (!pos) return null;
   const match = pos.match(/^(\d{2})-/);
@@ -40,6 +55,14 @@ export async function parseInvoiceAI(file: File): Promise<InvoiceRecord> {
   }
 
   const invoice = ai.invoice;
+  const textGstins = findValidGstins(text);
+
+  // Prefer the AI-labelled supplier GSTIN. If AI omitted it, use the first
+  // valid GSTIN found in the invoice text as a deterministic fallback.
+  const supplierGstin = normalizeGstin(invoice.supplier_gstin) ?? textGstins[0] ?? null;
+  const customerGstin = normalizeGstin(invoice.customer_gstin) ?? (
+    textGstins.find((g) => g !== supplierGstin) ?? null
+  );
 
   const rateSplits: RateSplit[] = (invoice.rows ?? []).map((r) => ({
     rate: Number(r.rate) || 0,
@@ -61,9 +84,6 @@ export async function parseInvoiceAI(file: File): Promise<InvoiceRecord> {
     sgst: Number(h.sgst) || 0,
     cess: Number(h.cess) || 0,
   })).filter((h) => h.hsn || h.taxableValue > 0);
-
-  const supplierGstin = normalizeGstin(invoice.supplier_gstin);
-  const customerGstin = normalizeGstin(invoice.customer_gstin);
 
   const category: "B2B" | "B2C" = customerGstin ? "B2B" : "B2C";
 
