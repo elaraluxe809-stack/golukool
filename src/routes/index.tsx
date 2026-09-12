@@ -651,7 +651,9 @@ function Index() {
                 <Card className="overflow-hidden">
                   <div className="border-b border-border px-4 py-3 sm:px-5">
                     <h2 className="font-display text-base font-semibold tracking-tight">Invoices</h2>
-                    <p className="text-xs text-muted-foreground">Per-invoice totals with tax split</p>
+                    <p className="text-xs text-muted-foreground">
+                      Every field is editable — click a cell and type. Edits are used by all exports.
+                    </p>
                   </div>
                   <div className="overflow-x-auto">
                     <Table>
@@ -670,8 +672,9 @@ function Index() {
                           <TableHead className="text-right">IGST</TableHead>
                           <TableHead className="text-right">CGST</TableHead>
                           <TableHead className="text-right">SGST</TableHead>
-                          <TableHead>Rates</TableHead>
+                          <TableHead className="text-right">Rate %</TableHead>
                           <TableHead>Status</TableHead>
+                          <TableHead />
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -685,41 +688,79 @@ function Index() {
                             }),
                             { taxable: 0, igst: 0, cgst: 0, sgst: 0 },
                           );
+                          const rate = r.rateSplits[0]?.rate ?? 0;
                           return (
                             <TableRow key={i}>
                               <TableCell className="max-w-[180px] truncate text-xs" title={r.fileName}>
                                 {r.fileName}
                               </TableCell>
-                              <TableCell>{r.invoiceNumber ?? "—"}</TableCell>
-                              <TableCell>{r.invoiceDate ?? "—"}</TableCell>
-                              <TableCell className="max-w-[160px] truncate" title={r.customerName ?? ""}>
-                                {r.customerName ?? "—"}
-                              </TableCell>
-                              <TableCell className="font-mono text-xs">{r.customerGstin ?? "—"}</TableCell>
-                              <TableCell>{r.placeOfSupply ?? "—"}</TableCell>
                               <TableCell>
-                                <Badge variant={r.category === "B2B" ? "default" : "secondary"}>
-                                  {r.category}
-                                </Badge>
+                                <EditText value={r.invoiceNumber} onChange={(v) => updateRecord(i, { invoiceNumber: v })} />
                               </TableCell>
                               <TableCell>
-                                <Badge variant="outline">{r.supplyType}</Badge>
+                                <EditText value={r.invoiceDate} onChange={(v) => updateRecord(i, { invoiceDate: v })} />
                               </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {r.invoiceValue != null ? fmt(r.invoiceValue) : "—"}
+                              <TableCell>
+                                <EditText value={r.customerName} onChange={(v) => updateRecord(i, { customerName: v })} />
                               </TableCell>
-                              <TableCell className="text-right tabular-nums">{fmt(t.taxable)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{t.igst > 0 ? fmt(t.igst) : "—"}</TableCell>
-                              <TableCell className="text-right tabular-nums">{t.cgst > 0 ? fmt(t.cgst) : "—"}</TableCell>
-                              <TableCell className="text-right tabular-nums">{t.sgst > 0 ? fmt(t.sgst) : "—"}</TableCell>
-                              <TableCell className="text-xs">
-                                {r.rateSplits.map((s) => `${s.rate}%`).join(", ") || "—"}
+                              <TableCell>
+                                <EditText
+                                  mono
+                                  value={r.customerGstin}
+                                  onChange={(v) => {
+                                    const g = v ? v.toUpperCase().replace(/\s+/g, "") : null;
+                                    updateRecord(i, { customerGstin: g, category: g ? "B2B" : "B2C" });
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <EditText value={r.placeOfSupply} onChange={(v) => updateRecord(i, { placeOfSupply: v })} />
+                              </TableCell>
+                              <TableCell>
+                                <select
+                                  aria-label="Category"
+                                  className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
+                                  value={r.category}
+                                  onChange={(e) => updateRecord(i, { category: e.target.value as InvoiceRecord["category"] })}
+                                >
+                                  <option value="B2B">B2B</option>
+                                  <option value="B2C">B2C</option>
+                                </select>
+                              </TableCell>
+                              <TableCell>
+                                <select
+                                  aria-label="Supply type"
+                                  className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
+                                  value={r.supplyType}
+                                  onChange={(e) => updateRecord(i, { supplyType: e.target.value as InvoiceRecord["supplyType"] })}
+                                >
+                                  <option value="Interstate">Interstate</option>
+                                  <option value="Intrastate">Intrastate</option>
+                                  <option value="Unknown">Unknown</option>
+                                </select>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <EditNum value={r.invoiceValue} onChange={(v) => updateRecord(i, { invoiceValue: v })} />
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <EditNum value={t.taxable} onChange={(v) => updateSplit(i, "taxableValue", v ?? 0)} />
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <EditNum value={t.igst} onChange={(v) => updateSplit(i, "igst", v ?? 0)} />
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <EditNum value={t.cgst} onChange={(v) => updateSplit(i, "cgst", v ?? 0)} />
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <EditNum value={t.sgst} onChange={(v) => updateSplit(i, "sgst", v ?? 0)} />
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <EditNum value={rate} onChange={(v) => updateSplit(i, "rate", v ?? 0)} />
                               </TableCell>
                               <TableCell>
                                 {r.issues.length === 0 ? (
                                   <span className="inline-flex items-center gap-1 text-emerald-600">
                                     <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                                    <span className="sr-only">OK</span>
                                     <span aria-hidden="true">OK</span>
                                   </span>
                                 ) : (
@@ -733,6 +774,16 @@ function Index() {
                                   </span>
                                 )}
                               </TableCell>
+                              <TableCell>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  aria-label={`Delete row ${i + 1}`}
+                                  onClick={() => setRecords((prev) => prev.filter((_, j) => j !== i))}
+                                >
+                                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                </Button>
+                              </TableCell>
                             </TableRow>
                           );
                         })}
@@ -740,6 +791,7 @@ function Index() {
                     </Table>
                   </div>
                 </Card>
+
 
                 <GstDashboard records={records} />
 
