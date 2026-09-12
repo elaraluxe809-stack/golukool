@@ -85,9 +85,11 @@ export async function readPdfText(file: File): Promise<string> {
 }
 
 
-function num(s: string): number {
+function num(s: string | undefined | null): number {
+  if (!s) return 0;
   return parseFloat(s.replace(/,/g, "").replace(/[^\d.\-]/g, "")) || 0;
 }
+
 
 function findGstins(text: string): string[] {
   const re = /\b(\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d][Zz][A-Z\d])\b/g;
@@ -291,11 +293,13 @@ function extractRateSplits(text: string): RateSplit[] {
 
   // Heuristic 1: explicit IGST / CGST / SGST with % on same line.
   const withPct = (label: string) =>
-    new RegExp(`${label}[^\\n]{0,40}?(\\d{1,2}(?:\\.\\d+)?)\\s*%[^\\n]{0,60}?${AMT}(?:[^\\n]{0,40}?${AMT})?`, "gi");
+    new RegExp(`(?:${label})[^\\n]{0,40}?(\\d{1,2}(?:\\.\\d+)?)\\s*%[^\\n]{0,60}?${AMT}(?:[^\\n]{0,40}?${AMT})?`, "gi");
   const runPct = (re: RegExp, kind: "i" | "c" | "s") => {
     let mm;
     while ((mm = re.exec(text))) {
-      let rate = parseFloat(mm[1]);
+      let rate = parseFloat(mm[1] ?? "");
+      if (!Number.isFinite(rate)) continue;
+
       const perLegRate = kind === "i" ? rate : rate; // rate as written
       if (kind !== "i") rate = rate * 2;
       if (!validRates.includes(Math.round(rate))) continue;
@@ -408,7 +412,7 @@ function extractRateSplits(text: string): RateSplit[] {
   // Heuristic 3: tax lines WITHOUT % — infer rate from taxable subtotal.
   if (bucket.size === 0) {
     const grab = (label: string): number => {
-      const re = new RegExp(`${label}[^A-Za-z0-9\\n]{0,20}(?:Rs\\.?|₹|INR)?\\s*${AMT}`, "gi");
+      const re = new RegExp(`(?:${label})[^A-Za-z0-9\\n]{0,20}(?:Rs\\.?|₹|INR)?\\s*${AMT}`, "gi");
       let total = 0;
       let mm;
       while ((mm = re.exec(text))) total += num(mm[1]);
