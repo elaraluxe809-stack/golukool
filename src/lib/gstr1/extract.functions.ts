@@ -153,7 +153,8 @@ export const extractInvoiceWithAI = createServerFn({ method: "POST" })
   .inputValidator((v: unknown) => Input.parse(v))
   .handler(async ({ data }) => {
     const geminiKey = process.env["GEMINI_API_KEY"];
-    const lovableKey = process.env["LOVABLE_API_KEY"];
+    // Prefer the user's own key when provided, else the project-managed one.
+    const lovableKey = process.env["USER_LOVABLE_API_KEY"] || process.env["LOVABLE_API_KEY"];
     if (!geminiKey && !lovableKey) {
       return {
         ok: false,

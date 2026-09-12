@@ -38,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { InvoiceRecord } from "@/lib/gstr1/parser";
+import { parseInvoicePdf } from "@/lib/gstr1/parser";
 import { parseInvoiceAI } from "@/lib/gstr1/ai-parser";
 import { importInvoicesFromExcel } from "@/lib/gstr1/excel-importer";
 import { exportGstr1Workbook } from "@/lib/gstr1/exporter";
@@ -68,10 +69,15 @@ export const Route = createFileRoute("/")({
 });
 
 type FileStatus = "queued" | "processing" | "retrying" | "completed" | "failed";
+type ExtractMode = "ai" | "local";
 
 function Index() {
   const [files, setFiles] = useState<File[]>([]);
   const [statuses, setStatuses] = useState<FileStatus[]>([]);
+  const [modes, setModes] = useState<ExtractMode[]>([]);
+  const [defaultMode, setDefaultMode] = useState<ExtractMode>("ai");
+  const defaultModeRef = useRef<ExtractMode>("ai");
+  defaultModeRef.current = defaultMode;
   const [records, setRecords] = useState<InvoiceRecord[]>([]);
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -91,13 +97,16 @@ function Index() {
       const seen = new Set(prev.map((f) => f.name + f.size));
       const merged = [...prev];
       const addedStatuses: FileStatus[] = [];
+      const addedModes: ExtractMode[] = [];
       for (const f of accepted) {
         if (!seen.has(f.name + f.size)) {
           merged.push(f);
           addedStatuses.push("queued");
+          addedModes.push(defaultModeRef.current);
         }
       }
       setStatuses((s) => [...s, ...addedStatuses]);
+      setModes((m) => [...m, ...addedModes]);
       return merged;
     });
   }, []);
@@ -156,6 +165,14 @@ function Index() {
     });
 
     const parsePdfWithRetry = async (f: File, i: number): Promise<InvoiceRecord> => {
+      // Per-invoice choice: AI extraction or the offline local parser.
+      if ((modes[i] ?? defaultMode) === "local") {
+        try {
+          return await parseInvoicePdf(f);
+        } catch (e) {
+          return failed(f, (e as Error).message ?? "unknown error");
+        }
+      }
       let lastErr: unknown;
       for (let attempt = 0; attempt < 4; attempt++) {
         try {
@@ -476,11 +493,29 @@ function Index() {
                       PDF, XLSX, XLS or CSV
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 items-center gap-2">
+                    <label className="hidden text-xs text-muted-foreground sm:block" htmlFor="default-mode">
+                      Default
+                    </label>
+                    <select
+                      id="default-mode"
+                      className="rounded-md border bg-background px-2 py-1 text-xs"
+                      aria-label="Default extraction method for all PDFs"
+                      value={defaultMode}
+                      disabled={processing}
+                      onChange={(e) => {
+                        const v = e.target.value as ExtractMode;
+                        setDefaultMode(v);
+                        setModes(files.map(() => v));
+                      }}
+                    >
+                      <option value="ai">AI for all</option>
+                      <option value="local">Local for all</option>
+                    </select>
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => { setFiles([]); setStatuses([]); setRecords([]); setCreditsExhausted(false); }}
+                      onClick={() => { setFiles([]); setStatuses([]); setModes([]); setRecords([]); setCreditsExhausted(false); }}
                       aria-label="Clear file queue"
                     >
                       <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -551,12 +586,15 @@ function Index() {
                     <thead className="sticky top-0 bg-muted/60 text-muted-foreground">
                       <tr>
                         <th className="px-3 py-2 text-left font-medium">File</th>
+                        <th className="w-36 px-3 py-2 text-left font-medium">Extraction</th>
                         <th className="w-32 px-3 py-2 text-right font-medium">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {files.map((f, i) => {
                         const s: FileStatus = statuses[i] ?? "queued";
+                        const mode: ExtractMode = modes[i] ?? defaultMode;
+                        const isPdf = /\.pdf$/i.test(f.name);
                         const styles: Record<FileStatus, string> = {
                           queued: "bg-muted text-muted-foreground",
                           processing: "bg-primary/10 text-primary",
@@ -575,6 +613,29 @@ function Index() {
                           <tr key={f.name + i} className="border-t">
                             <td className="max-w-0 px-3 py-2">
                               <div className="truncate" title={f.name}>{f.name}</div>
+                            </td>
+                            <td className="px-3 py-2">
+                              {isPdf ? (
+                                <select
+                                  className="w-full rounded-md border bg-background px-2 py-1 text-xs"
+                                  aria-label={`Extraction method for ${f.name}`}
+                                  value={mode}
+                                  disabled={processing}
+                                  onChange={(e) =>
+                                    setModes((prev) => {
+                                      const next = [...prev];
+                                      while (next.length <= i) next.push(defaultMode);
+                                      next[i] = e.target.value as ExtractMode;
+                                      return next;
+                                    })
+                                  }
+                                >
+                                  <option value="ai">AI</option>
+                                  <option value="local">Local parser</option>
+                                </select>
+                              ) : (
+                                <span className="text-muted-foreground">Sheet import</span>
+                              )}
                             </td>
                             <td className="px-3 py-2 text-right">
                               <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ${styles[s]}`}>
