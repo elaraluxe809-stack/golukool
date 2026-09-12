@@ -70,24 +70,42 @@ export function GstDashboard({ records }: { records: InvoiceRecord[] }) {
       .map(([k, v]) => ({ key: k, ...v }))
       .sort((a, b) => a.y - b.y || a.m - b.m);
 
-    // hsn
-    const hMap = new Map<string, { count: number; qty: number; taxable: number; igst: number; cgst: number; sgst: number }>();
+    // HSN summary
+    const hMap = new Map<string, { count: number; qty: number; taxable: number; igst: number; cgst: number; sgst: number; cess: number }>();
     for (const r of invoices) {
       const seenC = new Set<string>();
       for (const h of r.hsnItems) {
         const code = (h.hsn || "").trim() || "UNSPECIFIED";
         let a = hMap.get(code);
-        if (!a) { a = { count: 0, qty: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0 }; hMap.set(code, a); }
+        if (!a) { a = { count: 0, qty: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 }; hMap.set(code, a); }
         if (!seenC.has(code)) { a.count++; seenC.add(code); }
         a.qty += h.quantity;
-        a.taxable += h.taxableValue; a.igst += h.igst; a.cgst += h.cgst; a.sgst += h.sgst;
+        a.taxable += h.taxableValue;
+        a.igst += h.igst;
+        a.cgst += h.cgst;
+        a.sgst += h.sgst;
+        a.cess += h.cess;
       }
     }
     const hsn = [...hMap.entries()]
       .map(([code, v]) => ({ code, ...v }))
       .sort((a, b) => b.taxable - a.taxable);
 
-    return { invoices: invoices.length, grand, total, monthly, hsn };
+    const hsnGrand = hsn.reduce(
+      (a, h) => ({
+        count: a.count + h.count,
+        qty: a.qty + h.qty,
+        taxable: a.taxable + h.taxable,
+        igst: a.igst + h.igst,
+        cgst: a.cgst + h.cgst,
+        sgst: a.sgst + h.sgst,
+        cess: a.cess + h.cess,
+      }),
+      { count: 0, qty: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 },
+    );
+    const hsnTotal = hsnGrand.taxable + hsnGrand.igst + hsnGrand.cgst + hsnGrand.sgst + hsnGrand.cess;
+
+    return { invoices: invoices.length, grand, total, monthly, hsn, hsnGrand, hsnTotal };
   }, [records]);
 
   const kpis = [
@@ -97,6 +115,7 @@ export function GstDashboard({ records }: { records: InvoiceRecord[] }) {
     { label: "Total CGST", value: fmt(data.grand.cgst) },
     { label: "Total SGST", value: fmt(data.grand.sgst) },
     { label: "Total Invoice Value", value: fmt(data.total) },
+    { label: "Total HSN Value", value: fmt(data.hsnTotal) },
   ];
 
   return (
@@ -104,7 +123,7 @@ export function GstDashboard({ records }: { records: InvoiceRecord[] }) {
       <h2 className="text-2xl font-bold tracking-tight">GST Summary Dashboard</h2>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-7">
         {kpis.map((k) => (
           <Card key={k.label} className="overflow-hidden">
             <div className="bg-primary px-3 py-2 text-xs font-medium text-primary-foreground">
@@ -176,6 +195,7 @@ export function GstDashboard({ records }: { records: InvoiceRecord[] }) {
               <TableHead className="text-right">IGST</TableHead>
               <TableHead className="text-right">CGST</TableHead>
               <TableHead className="text-right">SGST</TableHead>
+              <TableHead className="text-right">CESS</TableHead>
               <TableHead className="text-right">Total Value</TableHead>
             </TableRow>
           </TableHeader>
@@ -189,11 +209,23 @@ export function GstDashboard({ records }: { records: InvoiceRecord[] }) {
                 <TableCell className="text-right">{fmt(h.igst)}</TableCell>
                 <TableCell className="text-right">{fmt(h.cgst)}</TableCell>
                 <TableCell className="text-right">{fmt(h.sgst)}</TableCell>
+                <TableCell className="text-right">{fmt(h.cess)}</TableCell>
                 <TableCell className="text-right">
-                  {fmt(h.taxable + h.igst + h.cgst + h.sgst)}
+                  {fmt(h.taxable + h.igst + h.cgst + h.sgst + h.cess)}
                 </TableCell>
               </TableRow>
             ))}
+            <TableRow className="bg-green-50 font-semibold dark:bg-green-950/30">
+              <TableCell>HSN Grand Total</TableCell>
+              <TableCell className="text-right">{data.hsnGrand.count}</TableCell>
+              <TableCell className="text-right">{fmt(data.hsnGrand.qty)}</TableCell>
+              <TableCell className="text-right">{fmt(data.hsnGrand.taxable)}</TableCell>
+              <TableCell className="text-right">{fmt(data.hsnGrand.igst)}</TableCell>
+              <TableCell className="text-right">{fmt(data.hsnGrand.cgst)}</TableCell>
+              <TableCell className="text-right">{fmt(data.hsnGrand.sgst)}</TableCell>
+              <TableCell className="text-right">{fmt(data.hsnGrand.cess)}</TableCell>
+              <TableCell className="text-right">{fmt(data.hsnTotal)}</TableCell>
+            </TableRow>
           </TableBody>
         </Table>
       </Card>
