@@ -288,7 +288,25 @@ function Index() {
 
 
 
+  // Post-extraction editing: every record field can be corrected by hand.
+  const updateRecord = (index: number, patch: Partial<InvoiceRecord>) =>
+    setRecords((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+
+  // Tax cells edit the invoice's first rate row (created if the invoice has none).
+  const updateSplit = (index: number, field: keyof InvoiceRecord["rateSplits"][number], value: number) =>
+    setRecords((prev) =>
+      prev.map((r, i) => {
+        if (i !== index) return r;
+        const splits = r.rateSplits.length
+          ? [...r.rateSplits]
+          : [{ rate: 0, taxableValue: 0, igst: 0, cgst: 0, sgst: 0 }];
+        splits[0] = { ...splits[0], [field]: value };
+        return { ...r, rateSplits: splits };
+      }),
+    );
+
   const totals = useMemo(() => {
+
     let taxable = 0, igst = 0, cgst = 0, sgst = 0, splits = 0, issues = 0;
     for (const r of records) {
       if (r.issues.length) issues++;
