@@ -293,11 +293,13 @@ function extractRateSplits(text: string): RateSplit[] {
 
   // Heuristic 1: explicit IGST / CGST / SGST with % on same line.
   const withPct = (label: string) =>
-    new RegExp(`${label}[^\\n]{0,40}?(\\d{1,2}(?:\\.\\d+)?)\\s*%[^\\n]{0,60}?${AMT}(?:[^\\n]{0,40}?${AMT})?`, "gi");
+    new RegExp(`(?:${label})[^\\n]{0,40}?(\\d{1,2}(?:\\.\\d+)?)\\s*%[^\\n]{0,60}?${AMT}(?:[^\\n]{0,40}?${AMT})?`, "gi");
   const runPct = (re: RegExp, kind: "i" | "c" | "s") => {
     let mm;
     while ((mm = re.exec(text))) {
-      let rate = parseFloat(mm[1]);
+      let rate = parseFloat(mm[1] ?? "");
+      if (!Number.isFinite(rate)) continue;
+
       const perLegRate = kind === "i" ? rate : rate; // rate as written
       if (kind !== "i") rate = rate * 2;
       if (!validRates.includes(Math.round(rate))) continue;
