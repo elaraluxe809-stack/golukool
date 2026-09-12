@@ -18,6 +18,10 @@ export const Route = createFileRoute("/compare")({
         content:
           "Side-by-side demo of three GST invoice extraction approaches: local pdfjs parser, AI-only, and hybrid AI+validation.",
       },
+      { property: "og:title", content: "Compare GST invoice extractors" },
+      { property: "og:description", content: "Compare local, Lovable AI, and validated GST invoice extraction." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: ComparePage,
