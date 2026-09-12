@@ -2,6 +2,7 @@ import {
   ExtractInvoiceInput,
   InvoiceSchema,
   type ExtractInvoiceResult,
+  type ExtractInvoiceInput as ExtractInvoiceInputData,
 } from "./extract.shared";
 
 const SYSTEM_PROMPT = `You are an Indian GST Invoice Extraction Engine.
@@ -120,7 +121,7 @@ function repairTruncatedJson(text: string): string {
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export async function runInvoiceExtraction(
-  input: ExtractInvoiceInput,
+  input: ExtractInvoiceInputData,
 ): Promise<ExtractInvoiceResult> {
   const lovableKey = process.env["LOVABLE_API_KEY"];
   if (!lovableKey) {
