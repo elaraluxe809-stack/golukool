@@ -412,7 +412,7 @@ function extractRateSplits(text: string): RateSplit[] {
   // Heuristic 3: tax lines WITHOUT % — infer rate from taxable subtotal.
   if (bucket.size === 0) {
     const grab = (label: string): number => {
-      const re = new RegExp(`${label}[^A-Za-z0-9\\n]{0,20}(?:Rs\\.?|₹|INR)?\\s*${AMT}`, "gi");
+      const re = new RegExp(`(?:${label})[^A-Za-z0-9\\n]{0,20}(?:Rs\\.?|₹|INR)?\\s*${AMT}`, "gi");
       let total = 0;
       let mm;
       while ((mm = re.exec(text))) total += num(mm[1]);
