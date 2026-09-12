@@ -12,7 +12,7 @@ export type { ExtractedInvoice, ExtractInvoiceResult } from "./extract.shared";
  * never required by, or exposed to, the frontend deployment.
  */
 export const LOVABLE_INVOICE_EXTRACTION_ENDPOINT =
-  "https://golukool.lovable.app/api/public/extract-invoice";
+  "https://project--5821de24-3b30-4f87-9e9b-6f9a9863e549-dev.lovable.app/api/public/extract-invoice";
 
 export async function extractInvoiceWithAI({
   data,
