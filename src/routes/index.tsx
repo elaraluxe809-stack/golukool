@@ -63,6 +63,8 @@ export const Route = createFileRoute("/")({
         property: "og:description",
         content: "Drop PDF tax invoices and export a ready-to-file GSTR-1 workbook. Auto rate-splits, GSTIN validation, B2B/B2C classification.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: Index,
