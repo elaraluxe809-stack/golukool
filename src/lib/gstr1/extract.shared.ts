@@ -53,3 +53,5 @@ export const ExtractInvoiceInput = z.object({
   fileName: z.string().trim().min(1).max(255),
   text: z.string().trim().min(1).max(45000),
 });
+
+export type ExtractInvoiceInput = z.infer<typeof ExtractInvoiceInput>;
