@@ -85,9 +85,11 @@ export async function readPdfText(file: File): Promise<string> {
 }
 
 
-function num(s: string): number {
+function num(s: string | undefined | null): number {
+  if (!s) return 0;
   return parseFloat(s.replace(/,/g, "").replace(/[^\d.\-]/g, "")) || 0;
 }
+
 
 function findGstins(text: string): string[] {
   const re = /\b(\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d][Zz][A-Z\d])\b/g;
