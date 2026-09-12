@@ -493,11 +493,29 @@ function Index() {
                       PDF, XLSX, XLS or CSV
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 items-center gap-2">
+                    <label className="hidden text-xs text-muted-foreground sm:block" htmlFor="default-mode">
+                      Default
+                    </label>
+                    <select
+                      id="default-mode"
+                      className="rounded-md border bg-background px-2 py-1 text-xs"
+                      aria-label="Default extraction method for all PDFs"
+                      value={defaultMode}
+                      disabled={processing}
+                      onChange={(e) => {
+                        const v = e.target.value as ExtractMode;
+                        setDefaultMode(v);
+                        setModes(files.map(() => v));
+                      }}
+                    >
+                      <option value="ai">AI for all</option>
+                      <option value="local">Local for all</option>
+                    </select>
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => { setFiles([]); setStatuses([]); setRecords([]); setCreditsExhausted(false); }}
+                      onClick={() => { setFiles([]); setStatuses([]); setModes([]); setRecords([]); setCreditsExhausted(false); }}
                       aria-label="Clear file queue"
                     >
                       <Trash2 className="h-4 w-4" aria-hidden="true" />
