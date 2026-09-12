@@ -165,6 +165,14 @@ function Index() {
     });
 
     const parsePdfWithRetry = async (f: File, i: number): Promise<InvoiceRecord> => {
+      // Per-invoice choice: AI extraction or the offline local parser.
+      if ((modes[i] ?? defaultMode) === "local") {
+        try {
+          return await parseInvoicePdf(f);
+        } catch (e) {
+          return failed(f, (e as Error).message ?? "unknown error");
+        }
+      }
       let lastErr: unknown;
       for (let attempt = 0; attempt < 4; attempt++) {
         try {
