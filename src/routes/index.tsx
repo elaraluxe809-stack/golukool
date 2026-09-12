@@ -38,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { InvoiceRecord } from "@/lib/gstr1/parser";
+import { parseInvoicePdf } from "@/lib/gstr1/parser";
 import { parseInvoiceAI } from "@/lib/gstr1/ai-parser";
 import { importInvoicesFromExcel } from "@/lib/gstr1/excel-importer";
 import { exportGstr1Workbook } from "@/lib/gstr1/exporter";
