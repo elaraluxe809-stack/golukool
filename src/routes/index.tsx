@@ -69,10 +69,15 @@ export const Route = createFileRoute("/")({
 });
 
 type FileStatus = "queued" | "processing" | "retrying" | "completed" | "failed";
+type ExtractMode = "ai" | "local";
 
 function Index() {
   const [files, setFiles] = useState<File[]>([]);
   const [statuses, setStatuses] = useState<FileStatus[]>([]);
+  const [modes, setModes] = useState<ExtractMode[]>([]);
+  const [defaultMode, setDefaultMode] = useState<ExtractMode>("ai");
+  const defaultModeRef = useRef<ExtractMode>("ai");
+  defaultModeRef.current = defaultMode;
   const [records, setRecords] = useState<InvoiceRecord[]>([]);
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -92,13 +97,16 @@ function Index() {
       const seen = new Set(prev.map((f) => f.name + f.size));
       const merged = [...prev];
       const addedStatuses: FileStatus[] = [];
+      const addedModes: ExtractMode[] = [];
       for (const f of accepted) {
         if (!seen.has(f.name + f.size)) {
           merged.push(f);
           addedStatuses.push("queued");
+          addedModes.push(defaultModeRef.current);
         }
       }
       setStatuses((s) => [...s, ...addedStatuses]);
+      setModes((m) => [...m, ...addedModes]);
       return merged;
     });
   }, []);
