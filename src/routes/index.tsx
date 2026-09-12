@@ -892,3 +892,44 @@ function SummaryItem({ label, value }: { label: string; value: string | number }
 function fmt(n: number): string {
   return n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
+function EditText({
+  value,
+  onChange,
+  mono,
+}: {
+  value: string | null;
+  onChange: (v: string | null) => void;
+  mono?: boolean;
+}) {
+  return (
+    <input
+      type="text"
+      value={value ?? ""}
+      placeholder="—"
+      onChange={(e) => onChange(e.target.value.trim() === "" ? null : e.target.value)}
+      className={`w-full min-w-[90px] rounded-md border border-transparent bg-transparent px-1.5 py-1 text-sm hover:border-input focus:border-ring focus:bg-background focus:outline-none focus:ring-2 focus:ring-ring/30 ${
+        mono ? "font-mono text-xs" : ""
+      }`}
+    />
+  );
+}
+
+function EditNum({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (v: number | null) => void;
+}) {
+  return (
+    <input
+      type="number"
+      step="0.01"
+      value={value ?? ""}
+      placeholder="—"
+      onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+      className="w-24 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-right text-sm tabular-nums hover:border-input focus:border-ring focus:bg-background focus:outline-none focus:ring-2 focus:ring-ring/30"
+    />
+  );
+}
