@@ -182,13 +182,6 @@ export function buildGstr1Json(records: InvoiceRecord[], opts: JsonExportOptions
   const fp = requestedPeriod || preparedInvoices
     .map(({ invoice }) => fpFromDate(invoice.idt))
     .find((value): value is string => Boolean(value)) || "";
-  const byCtin = new Map<string, InvoiceRecord[]>();
-  for (const prepared of preparedInvoices) {
-    const group = byCtin.get(prepared.ctin) ?? [];
-    group.push(records.find((record) => record.category === "B2B" && record.customerGstin?.trim().toUpperCase() === prepared.ctin && record.invoiceNumber?.trim() === prepared.invoice.inum) as InvoiceRecord);
-    byCtin.set(prepared.ctin, group);
-  }
-
   const b2bBlock = new Map<string, typeof preparedInvoices>();
   for (const prepared of preparedInvoices) {
     const group = b2bBlock.get(prepared.ctin) ?? [];
