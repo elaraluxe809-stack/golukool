@@ -1,7 +1,5 @@
 import type { InvoiceRecord } from "./parser";
-import { isValidGstin } from "./states";
-
-const GSTIN_PATTERN = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]Z[A-Z0-9]$/;
+import { isValidGstin, normalizePlaceOfSupply } from "./states";
 
 const MONTHS: Record<string, string> = {
   JAN: "01", JANUARY: "01", FEB: "02", FEBRUARY: "02", MAR: "03", MARCH: "03",
@@ -13,7 +11,9 @@ const MONTHS: Record<string, string> = {
 function normalizeDate(d: string | null | undefined): string | null {
   if (!d) return null;
   const s = d.trim();
-  let m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$/);
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (m) return formatDate(m[3], m[2], m[1]);
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$/);
   if (m) {
     const yy = m[3].length === 2 ? `20${m[3]}` : m[3];
     return formatDate(m[1], m[2], yy);
@@ -26,8 +26,6 @@ function normalizeDate(d: string | null | undefined): string | null {
       return formatDate(m[1], mm, yy);
     }
   }
-  m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
-  if (m) return formatDate(m[3], m[2], m[1]);
   return null;
 }
 
@@ -91,7 +89,8 @@ export function buildGstr1Json(records: InvoiceRecord[], opts: JsonExportOptions
     const invoiceLabel = record.invoiceNumber?.trim() || record.fileName || "Unnamed invoice";
     const ctin = record.customerGstin?.trim().toUpperCase() ?? "";
     const invoiceDate = normalizeDate(record.invoiceDate);
-    const pos = posCode(record.placeOfSupply, ctin);
+    const normalizedPlaceOfSupply = normalizePlaceOfSupply(record.placeOfSupply);
+    const pos = posCode(normalizedPlaceOfSupply, null);
     const invoiceValue = record.invoiceValue;
     const reasons: string[] = [];
 
