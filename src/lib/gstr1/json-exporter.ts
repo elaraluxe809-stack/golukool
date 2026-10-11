@@ -12,20 +12,32 @@ const MONTHS: Record<string, string> = {
 function normalizeDate(d: string | null | undefined): string | null {
   if (!d) return null;
   const s = d.trim();
-  let m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{2}|\d{4})$/);
+  let m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$/);
   if (m) {
     const yy = m[3].length === 2 ? `20${m[3]}` : m[3];
-    return `${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}-${yy}`;
+    return formatDate(m[1], m[2], yy);
   }
   m = s.match(/^(\d{1,2})[-\/\s]([A-Za-z]+)[-\/\s](\d{2}|\d{4})$/);
   if (m) {
     const mm = MONTHS[m[2].toUpperCase()];
     if (mm) {
       const yy = m[3].length === 2 ? `20${m[3]}` : m[3];
-      return `${m[1].padStart(2, "0")}-${mm}-${yy}`;
+      return formatDate(m[1], mm, yy);
     }
   }
+  m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (m) return formatDate(m[3], m[2], m[1]);
   return null;
+}
+
+function formatDate(day: string, month: string, year: string): string | null {
+  const dd = Number(day);
+  const mm = Number(month);
+  const yyyy = Number(year);
+  if (yyyy < 1900 || mm < 1 || mm > 12 || dd < 1) return null;
+  const daysInMonth = new Date(yyyy, mm, 0).getDate();
+  if (dd > daysInMonth) return null;
+  return `${String(dd).padStart(2, "0")}-${String(mm).padStart(2, "0")}-${String(yyyy).padStart(4, "0")}`;
 }
 
 function fpFromDate(d: string | null | undefined): string | null {
@@ -54,116 +66,161 @@ export interface JsonExportOptions {
 }
 
 export function buildGstr1Json(records: InvoiceRecord[], opts: JsonExportOptions) {
-  const b2b = records.filter(
-    (r) => r.category === "B2B" && r.customerGstin && GSTIN_PATTERN.test(r.customerGstin.trim()),
-  );
-
-  const fp =
-    opts.filingPeriod ||
-    b2b.map((r) => fpFromDate(r.invoiceDate)).find((v): v is string => !!v) ||
-    "";
-
-  const byCtin = new Map<string, InvoiceRecord[]>();
-  for (const r of b2b) {
-    const ctin = r.customerGstin!.trim().toUpperCase();
-    const arr = byCtin.get(ctin) ?? [];
-    arr.push(r);
-    byCtin.set(ctin, arr);
+  const supplierGstin = opts.supplierGstin.trim().toUpperCase();
+  if (!GSTIN_PATTERN.test(supplierGstin)) {
+    throw new Error("Invalid supplier GSTIN. Enter a valid 15-character GSTIN.");
   }
-
-  const b2bBlock = Array.from(byCtin.entries()).map(([ctin, invs]) => ({
-    ctin,
-    inv: invs.map((r) => {
-      const itms = r.rateSplits
-        .filter((s) => Number(s.taxableValue) > 0)
-        .map((s, i) => {
-          const rate = Number(s.rate);
-          const num = Math.round(rate * 100) + (i + 1);
-          const iamt = round2(s.igst);
-          const camt = round2(s.cgst);
-          const samt = round2(s.sgst);
-          const itm_det: Record<string, number> = {
-            txval: round2(s.taxableValue),
-            rt: rate,
-            csamt: 0,
-          };
-          if (iamt > 0) itm_det.iamt = iamt;
-          if (camt > 0) itm_det.camt = camt;
-          if (samt > 0) itm_det.samt = samt;
-          return { num, itm_det };
-        });
-
-      const totIgst = round2(r.rateSplits.reduce((a, s) => a + (Number(s.igst) || 0), 0));
-      const totCgst = round2(r.rateSplits.reduce((a, s) => a + (Number(s.cgst) || 0), 0));
-      const totSgst = round2(r.rateSplits.reduce((a, s) => a + (Number(s.sgst) || 0), 0));
-
-      return {
-        inum: r.invoiceNumber ?? "",
-        idt: normalizeDate(r.invoiceDate) ?? r.invoiceDate ?? "",
-        val: round2(Number(r.invoiceValue ?? 0)),
-        iamt: totIgst,
-        camt: totCgst,
-        samt: totSgst,
-        pos: posCode(r.placeOfSupply, r.customerGstin) ?? "",
-        rchrg: "N",
-        inv_typ: "R",
-        itms,
-      };
-
-    }),
-  }));
-
-  // B2CS aggregation by (pos, rate)
-  const supplierStateCode = opts.supplierGstin.trim().slice(0, 2);
-  const b2c = records.filter((r) => r.category === "B2C");
-  const b2csMap = new Map<string, { pos: string; rt: number; txval: number; iamt: number; camt: number; samt: number }>();
-  for (const r of b2c) {
-    const pos = posCode(r.placeOfSupply, r.customerGstin);
-    if (!pos) continue;
-    for (const s of r.rateSplits) {
-      const txval = Number(s.taxableValue) || 0;
-      if (txval <= 0) continue;
-      const rt = Number(s.rate) || 0;
-      const key = `${pos}||${rt}`;
-      const a = b2csMap.get(key) ?? { pos, rt, txval: 0, iamt: 0, camt: 0, samt: 0 };
-      a.txval += txval;
-      a.iamt += Number(s.igst) || 0;
-      a.camt += Number(s.cgst) || 0;
-      a.samt += Number(s.sgst) || 0;
-      b2csMap.set(key, a);
-    }
-  }
-  const b2csBlock = Array.from(b2csMap.values()).map((a) => {
-    const intra = a.pos === supplierStateCode;
-    const row: Record<string, string | number> = {
-      sply_ty: intra ? "INTRA" : "INTER",
-      rt: a.rt,
-      typ: "OE",
-      pos: a.pos,
-      txval: round2(a.txval),
+  const supplierStateCode = supplierGstin.slice(0, 2);
+  const b2bRecords = records.filter((record) => record.category === "B2B");
+  const validationErrors: string[] = [];
+  const preparedInvoices: Array<{
+    ctin: string;
+    invoice: {
+      inum: string;
+      idt: string;
+      val: number;
+      pos: string;
+      rchrg: "N";
+      inv_typ: "R";
+      itms: Array<{ num: number; itm_det: Record<string, number> }>;
     };
-    if (intra) {
-      row.camt = round2(a.camt || (a.txval * a.rt) / 200);
-      row.samt = round2(a.samt || (a.txval * a.rt) / 200);
-    } else {
-      row.iamt = round2(a.iamt || (a.txval * a.rt) / 100);
+  }> = [];
+
+  for (const record of b2bRecords) {
+    const invoiceLabel = record.invoiceNumber?.trim() || record.fileName || "Unnamed invoice";
+    const ctin = record.customerGstin?.trim().toUpperCase() ?? "";
+    const invoiceDate = normalizeDate(record.invoiceDate);
+    const pos = posCode(record.placeOfSupply, ctin);
+    const invoiceValue = record.invoiceValue;
+    const reasons: string[] = [];
+
+    if (!ctin || !GSTIN_PATTERN.test(ctin)) reasons.push("recipient GSTIN is missing or invalid");
+    if (!record.invoiceNumber?.trim()) reasons.push("invoice number is missing");
+    if (!invoiceDate) reasons.push("invoice date is missing or invalid (expected DD-MM-YYYY)");
+    if (typeof invoiceValue !== "number" || !Number.isFinite(invoiceValue)) {
+      reasons.push("invoice value is missing or invalid");
     }
-    row.csamt = 0;
-    return row;
-  });
+    if (!pos || !/^\d{2}$/.test(pos)) reasons.push("place of supply is missing or invalid");
+    if (!record.rateSplits.length) reasons.push("no taxable value or GST rate rows found");
+
+    const interstate = pos !== null && pos !== supplierStateCode;
+    const items: Array<{ num: number; itm_det: Record<string, number> }> = [];
+
+    record.rateSplits.forEach((split, index) => {
+      const taxableValue = split.taxableValue;
+      const rate = split.rate;
+      const igst = split.igst;
+      const cgst = split.cgst;
+      const sgst = split.sgst;
+      if (![taxableValue, rate, igst, cgst, sgst].every((value) => typeof value === "number" && Number.isFinite(value))) {
+        reasons.push(`GST row ${index + 1} contains a missing or invalid number`);
+        return;
+      }
+      if (taxableValue < 0 || rate < 0 || igst < 0 || cgst < 0 || sgst < 0) {
+        reasons.push(`GST row ${index + 1} contains a negative amount or rate`);
+        return;
+      }
+
+      if (interstate && (cgst > 0 || sgst > 0)) {
+        reasons.push(`tax type mismatch — seller state ${supplierStateCode} and POS ${pos} require IGST only`);
+      } else if (!interstate && igst > 0) {
+        reasons.push(`tax type mismatch — seller state ${supplierStateCode} and POS ${pos} require CGST + SGST`);
+      } else if (!interstate && rate > 0 && taxableValue > 0 && (cgst === 0 || sgst === 0)) {
+        reasons.push(`GST row ${index + 1} requires both CGST and SGST for intrastate supply`);
+      } else if (interstate && rate > 0 && taxableValue > 0 && igst === 0) {
+        reasons.push(`GST row ${index + 1} requires IGST for interstate supply`);
+      }
+
+      if (taxableValue <= 0) return;
+      const itmDet: Record<string, number> = {
+        txval: round2(taxableValue),
+        rt: rate,
+      };
+      if (interstate) {
+        itmDet.iamt = round2(igst);
+      } else {
+        itmDet.camt = round2(cgst);
+        itmDet.samt = round2(sgst);
+      }
+      itmDet.csamt = 0;
+      items.push({ num: Math.round(rate * 100) + index + 1, itm_det: itmDet });
+    });
+
+    if (items.length === 0 && record.rateSplits.length > 0) {
+      reasons.push("no GST rows with a positive taxable value to export");
+    }
+    if (reasons.length > 0) {
+      validationErrors.push(`${invoiceLabel}: ${[...new Set(reasons)].join("; ")}`);
+      continue;
+    }
+
+    // All required values were checked above; only validated values enter the export.
+    if (invoiceDate && pos && typeof invoiceValue === "number" && ctin) {
+      preparedInvoices.push({
+        ctin,
+        invoice: {
+          inum: record.invoiceNumber?.trim() ?? "",
+          idt: invoiceDate,
+          val: round2(invoiceValue),
+          pos,
+          rchrg: "N",
+          inv_typ: "R",
+          itms: items,
+        },
+      });
+    }
+  }
+
+  if (validationErrors.length > 0) {
+    throw new Error(`B2B JSON was not exported because these invoices need attention:\n\n${validationErrors.join("\n")}`);
+  }
+
+  const requestedPeriod = opts.filingPeriod?.trim();
+  if (requestedPeriod && (!/^\d{6}$/.test(requestedPeriod) || Number(requestedPeriod.slice(0, 2)) < 1 || Number(requestedPeriod.slice(0, 2)) > 12)) {
+    throw new Error("Filing period must be a valid MMYYYY value.");
+  }
+  const fp = requestedPeriod || preparedInvoices
+    .map(({ invoice }) => fpFromDate(invoice.idt))
+    .find((value): value is string => Boolean(value)) || "";
+  const byCtin = new Map<string, InvoiceRecord[]>();
+  for (const prepared of preparedInvoices) {
+    const group = byCtin.get(prepared.ctin) ?? [];
+    group.push(records.find((record) => record.category === "B2B" && record.customerGstin?.trim().toUpperCase() === prepared.ctin && record.invoiceNumber?.trim() === prepared.invoice.inum) as InvoiceRecord);
+    byCtin.set(prepared.ctin, group);
+  }
+
+  const b2bBlock = new Map<string, typeof preparedInvoices>();
+  for (const prepared of preparedInvoices) {
+    const group = b2bBlock.get(prepared.ctin) ?? [];
+    group.push(prepared);
+    b2bBlock.set(prepared.ctin, group);
+  }
 
   return {
-    gstin: opts.supplierGstin.trim().toUpperCase(),
+    gstin: supplierGstin,
     fp,
     version: "GST3.2.4",
     hash: "hash",
-    b2b: b2bBlock,
-    b2cs: b2csBlock,
+    b2b: Array.from(b2bBlock, ([ctin, invoices]) => ({
+      ctin,
+      inv: invoices.map(({ invoice }) => invoice),
+    })),
   };
 }
 
 export async function exportGstr1Json(records: InvoiceRecord[], opts: JsonExportOptions): Promise<void> {
-  const payload = buildGstr1Json(records, opts);
+  let payload: ReturnType<typeof buildGstr1Json>;
+  try {
+    payload = buildGstr1Json(records, opts);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to validate B2B invoices.";
+    window.alert(message);
+    return;
+  }
+  if (payload.b2b.length === 0) {
+    window.alert("No valid B2B invoices are available to export.");
+    return;
+  }
   const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
