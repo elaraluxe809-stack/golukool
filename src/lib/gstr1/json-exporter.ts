@@ -1,4 +1,5 @@
 import type { InvoiceRecord } from "./parser";
+import { isValidGstin } from "./states";
 
 const GSTIN_PATTERN = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]Z[A-Z0-9]$/;
 
@@ -67,7 +68,7 @@ export interface JsonExportOptions {
 
 export function buildGstr1Json(records: InvoiceRecord[], opts: JsonExportOptions) {
   const supplierGstin = opts.supplierGstin.trim().toUpperCase();
-  if (!GSTIN_PATTERN.test(supplierGstin)) {
+  if (!isValidGstin(supplierGstin)) {
     throw new Error("Invalid supplier GSTIN. Enter a valid 15-character GSTIN.");
   }
   const supplierStateCode = supplierGstin.slice(0, 2);
@@ -94,7 +95,7 @@ export function buildGstr1Json(records: InvoiceRecord[], opts: JsonExportOptions
     const invoiceValue = record.invoiceValue;
     const reasons: string[] = [];
 
-    if (!ctin || !GSTIN_PATTERN.test(ctin)) reasons.push("recipient GSTIN is missing or invalid");
+    if (!ctin || !isValidGstin(ctin)) reasons.push("recipient GSTIN is missing or invalid");
     if (!record.invoiceNumber?.trim()) reasons.push("invoice number is missing");
     if (!invoiceDate) reasons.push("invoice date is missing or invalid (expected DD-MM-YYYY)");
     if (typeof invoiceValue !== "number" || !Number.isFinite(invoiceValue)) {
